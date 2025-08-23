@@ -1,7 +1,7 @@
 output "superuser" {
   description = "Superuser Postgres (username + password)"
   value = {
-    username = var.pg_superuser
+    username = var.superuser_name
     password = random_password.superuser.result
   }
   sensitive = true
@@ -17,11 +17,9 @@ output "r_users" {
   sensitive = true
 }
 
-
 output "service_id" {
-  value = docker_container.postgres.id
+  value = docker_container.mariadb.id
 }
-
 
 output "published_port" {
   value = var.published_port

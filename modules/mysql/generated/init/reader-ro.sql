@@ -1,0 +1,3 @@
+CREATE USER 'reader'@'%' IDENTIFIED BY 'BVMDlvyQTcJ9sbFyQRrzUz';
+GRANT SELECT ON mysql.* TO 'reader'@'%';
+FLUSH PRIVILEGES;

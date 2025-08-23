@@ -32,7 +32,7 @@ resource "random_password" "rw" {
 # Creating users data
 locals {
   superuser = {
-    name : replace(lower(var.pg_superuser), "[^a-z0-9_.-]", "-"), password : random_password.superuser.result
+    name : replace(lower(var.superuser_name), "[^a-z0-9_.-]", "-"), password : random_password.superuser.result
   }
   users_rw  = [
     for u in var.users_rw :{ name : replace(lower(u), "[^a-z0-9_.-]", "-"), password : random_password.rw[u].result }
@@ -42,7 +42,7 @@ locals {
   ]
 }
 
-resource "docker_network" "pg" {
+resource "docker_network" "mariadb" {
   name       = var.network_name
   driver     = "bridge"
   attachable = true
@@ -53,7 +53,7 @@ resource "docker_network" "pg" {
   }
 }
 
-resource "docker_volume" "pg" {
+resource "docker_volume" "mariadb" {
   name = var.volume_name
 
   lifecycle {
@@ -62,31 +62,17 @@ resource "docker_volume" "pg" {
 }
 
 locals {
-  sql_create_accesses_template = <<-EOT
-    CREATE ROLE readaccess;
-    CREATE ROLE readwriteaccess;
-  EOT
-
   sql_ro_template = <<-EOT
-    GRANT CONNECT ON DATABASE database_name TO readaccess;
-    GRANT USAGE ON SCHEMA public TO readaccess;
-    GRANT SELECT ON ALL TABLES IN SCHEMA public TO readaccess;
-    CREATE USER database_username WITH PASSWORD 'database_user_password';
-    GRANT readaccess TO database_username;
+    CREATE USER 'database_username'@'%' IDENTIFIED BY 'database_user_password';
+    GRANT SELECT ON database_name.* TO 'database_username'@'%';
+    FLUSH PRIVILEGES;
   EOT
 
   sql_rw_template = <<-EOT
-    GRANT CONNECT ON DATABASE database_name TO readwriteaccess;
-    GRANT USAGE, CREATE ON SCHEMA public TO readwriteaccess;
-    GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO readwriteaccess;
-    CREATE USER database_username WITH PASSWORD 'database_user_password';
-    GRANT readwriteaccess TO database_username;
+    CREATE USER 'database_username'@'%' IDENTIFIED BY 'database_user_password';
+    GRANT SELECT, INSERT, UPDATE, DELETE ON database_name.* TO 'database_username'@'%';
+    FLUSH PRIVILEGES;
   EOT
-}
-
-resource "local_file" "pg_accesses" {
-  filename = "${path.module}/generated/init/__accesses.sql"
-  content = local.sql_create_accesses_template
 }
 
 resource "local_file" "users_ro_sql" {
@@ -105,7 +91,7 @@ resource "local_file" "users_ro_sql" {
       each.value.password
     ),
     "database_name",
-    var.pg_database
+    var.database_name
   )
 }
 
@@ -125,21 +111,21 @@ resource "local_file" "users_rw_sql" {
       each.value.password
     ),
     "database_name",
-    var.pg_database
+    var.database_name
   )
 }
 
-resource "docker_container" "postgres" {
+resource "docker_container" "mariadb" {
   name  = var.service_name
-  image = "postgres:${var.image_tag}"
+  image = "mariadb:${var.image_tag}"
 
   networks_advanced {
-    name = docker_network.pg.name
+    name = docker_network.mariadb.name
   }
 
   mounts {
-    target = "/var/lib/postgresql/data"
-    source = docker_volume.pg.name
+    target = "/var/lib/mariadb"
+    source = docker_volume.mariadb.name
     type   = "volume"
   }
 
@@ -149,16 +135,15 @@ resource "docker_container" "postgres" {
     type   = "bind"
   }
 
-  # TODO mount .sql files
-
   env = [
-    "POSTGRES_DB=${var.pg_database}",
-    "POSTGRES_USER=${var.pg_superuser}",
-    "POSTGRES_PASSWORD=${random_password.superuser.result}",
+    "MARIADB_DATABASE=${var.database_name}",
+    "MARIADB_USER=${var.superuser_name}",
+    "MARIADB_ROOT_PASSWORD=${random_password.superuser.result}",
+    "MARIADB_PASSWORD=${random_password.superuser.result}",
   ]
 
   ports {
-    internal = 5432
+    internal = 3306
     external = var.published_port
   }
 
